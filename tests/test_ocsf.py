@@ -2,21 +2,13 @@
 
 import json
 
-import pytest
-
 from agenttrail.schema.event import (
     InstructionsEvent,
-    SessionEndEvent,
-    SessionStartEvent,
     SpawnEvent,
     ToolCallEvent,
     ToolResultEvent,
-    ClientInfo,
 )
 from agenttrail.schema.ocsf import (
-    OCSF_ACTIVITY_ID,
-    OCSF_CLASS_UID,
-    OCSF_TYPE_UID,
     to_ocsf,
 )
 
@@ -67,9 +59,7 @@ class TestOCSFEnvelope:
 
 class TestOCSFActor:
     def test_actor_has_agent_name(self):
-        event = ToolCallEvent(
-            session_id="s1", agent_name="claude-code", tool_name="Read", arguments={}
-        )
+        event = ToolCallEvent(session_id="s1", agent_name="claude-code", tool_name="Read", arguments={})
         ocsf = to_ocsf(event)
         assert ocsf["actor"]["user"]["name"] == "claude-code"
 
@@ -87,17 +77,13 @@ class TestOCSFActor:
 
 class TestOCSFEndpoints:
     def test_src_endpoint_is_agent(self):
-        event = ToolCallEvent(
-            session_id="s1", agent_name="my-agent", tool_name="Read", arguments={}
-        )
+        event = ToolCallEvent(session_id="s1", agent_name="my-agent", tool_name="Read", arguments={})
         ocsf = to_ocsf(event)
         assert ocsf["src_endpoint"]["type_id"] == 99
         assert ocsf["src_endpoint"]["name"] == "my-agent"
 
     def test_dst_endpoint_is_server(self):
-        event = ToolCallEvent(
-            session_id="s1", server_name="filesystem", tool_name="Read", arguments={}
-        )
+        event = ToolCallEvent(session_id="s1", server_name="filesystem", tool_name="Read", arguments={})
         ocsf = to_ocsf(event)
         assert ocsf["dst_endpoint"]["type_id"] == 1
         assert ocsf["dst_endpoint"]["name"] == "filesystem"
@@ -153,9 +139,7 @@ class TestOCSFAOSUnmapped:
         assert step["operation"]["type"] == "tool_execution"
         assert step["operation"]["tool"]["id"] == "Read"
         assert step["operation"]["tool"]["execution_id"] == "42"
-        assert step["operation"]["tool"]["inputs"] == [
-            {"name": "file_path", "value": "/etc/passwd"}
-        ]
+        assert step["operation"]["tool"]["inputs"] == [{"name": "file_path", "value": "/etc/passwd"}]
 
     def test_tool_result_step_structure(self):
         event = ToolResultEvent(

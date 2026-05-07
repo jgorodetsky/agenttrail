@@ -28,6 +28,7 @@ class S3Output(BaseOutput):
     def _ensure_client(self) -> Any:
         if self._client is None:
             import boto3
+
             self._client = boto3.client("s3", region_name=self.region)
         return self._client
 
@@ -51,8 +52,11 @@ class S3Output(BaseOutput):
         key = f"{self.prefix}{int(time.time() * 1000)}.jsonl"
 
         import anyio
+
         await anyio.to_thread.run_sync(
-            lambda: client.put_object(Bucket=self.bucket, Key=key, Body=body.encode("utf-8"), ContentType="application/x-ndjson")
+            lambda: client.put_object(
+                Bucket=self.bucket, Key=key, Body=body.encode("utf-8"), ContentType="application/x-ndjson"
+            )
         )
 
     async def close(self) -> None:

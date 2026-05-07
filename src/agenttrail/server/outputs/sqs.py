@@ -15,6 +15,7 @@ class SQSOutput(BaseOutput):
     def _ensure_client(self) -> Any:
         if self._client is None:
             import boto3
+
             self._client = boto3.client("sqs", region_name=self.region)
         return self._client
 
@@ -23,9 +24,8 @@ class SQSOutput(BaseOutput):
         body = json.dumps(event, default=str)
 
         import anyio
-        await anyio.to_thread.run_sync(
-            lambda: client.send_message(QueueUrl=self.queue_url, MessageBody=body)
-        )
+
+        await anyio.to_thread.run_sync(lambda: client.send_message(QueueUrl=self.queue_url, MessageBody=body))
 
     async def flush(self) -> None:
         pass

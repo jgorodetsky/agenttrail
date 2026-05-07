@@ -13,7 +13,6 @@ import sys
 import uuid
 from datetime import UTC, datetime
 from io import TextIOWrapper
-from typing import Any
 
 import anyio
 import httpx
@@ -61,9 +60,7 @@ class MCPAuditProxy:
             )
 
         if self.config.local_log_path:
-            self._log_file = await anyio.open_file(
-                self.config.local_log_path, "a", encoding="utf-8"
-            )
+            self._log_file = await anyio.open_file(self.config.local_log_path, "a", encoding="utf-8")
 
         try:
             async with anyio.create_task_group() as tg:
@@ -77,9 +74,7 @@ class MCPAuditProxy:
             if self._log_file:
                 await self._log_file.aclose()
 
-    async def _wait_for_process(
-        self, process: anyio.abc.Process, tg: anyio.abc.TaskGroup
-    ) -> None:
+    async def _wait_for_process(self, process: anyio.abc.Process, tg: anyio.abc.TaskGroup) -> None:
         await process.wait()
         tg.cancel_scope.cancel()
 
@@ -130,8 +125,7 @@ class MCPAuditProxy:
 
         if method == "initialize" and params:
             client_info_raw = (
-                params.get("clientInfo") if isinstance(params, dict)
-                else getattr(params, "clientInfo", None)
+                params.get("clientInfo") if isinstance(params, dict) else getattr(params, "clientInfo", None)
             )
             if client_info_raw:
                 info = (
@@ -146,11 +140,7 @@ class MCPAuditProxy:
 
         elif method == "tools/call" and params:
             params_dict = (
-                params.model_dump()
-                if hasattr(params, "model_dump")
-                else params
-                if isinstance(params, dict)
-                else {}
+                params.model_dump() if hasattr(params, "model_dump") else params if isinstance(params, dict) else {}
             )
             tool_name = params_dict.get("name", "unknown")
             arguments = params_dict.get("arguments", {})
@@ -183,11 +173,7 @@ class MCPAuditProxy:
 
         if result and hasattr(result, "serverInfo"):
             server_info = result.serverInfo
-            info = (
-                server_info.model_dump()
-                if hasattr(server_info, "model_dump")
-                else {}
-            )
+            info = server_info.model_dump() if hasattr(server_info, "model_dump") else {}
             tools: list[str] = []
             event = SessionStartEvent(
                 session_id=self.session_id,
@@ -231,11 +217,15 @@ class MCPAuditProxy:
                     result_summary = text[:200]
                 is_error = is_error or getattr(result, "isError", False)
 
-            result_canonical = json.dumps(
-                result.model_dump() if hasattr(result, "model_dump") else str(result),
-                sort_keys=True,
-                separators=(",", ":"),
-            ) if result else ""
+            result_canonical = (
+                json.dumps(
+                    result.model_dump() if hasattr(result, "model_dump") else str(result),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+                if result
+                else ""
+            )
             result_hash = f"sha256:{hashlib.sha256(result_canonical.encode()).hexdigest()}" if result_canonical else ""
 
             event = ToolResultEvent(
@@ -260,7 +250,9 @@ class MCPAuditProxy:
 
         if self._http_client:
             try:
-                await self._http_client.post("/v1/events", content=event_json, headers={"Content-Type": "application/json"})
+                await self._http_client.post(
+                    "/v1/events", content=event_json, headers={"Content-Type": "application/json"}
+                )
             except Exception:
                 pass
 

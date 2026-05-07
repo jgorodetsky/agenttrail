@@ -2,7 +2,7 @@
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,16 +25,18 @@ def proxy():
 class TestProcessClientMessage:
     @pytest.mark.anyio
     async def test_extracts_agent_name_from_initialize(self, proxy):
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "clientInfo": {"name": "claude-code", "version": "2.0.0"},
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-            },
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "clientInfo": {"name": "claude-code", "version": "2.0.0"},
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                },
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_client_message(msg)
         assert proxy.agent_name == "claude-code"
@@ -42,15 +44,17 @@ class TestProcessClientMessage:
 
     @pytest.mark.anyio
     async def test_creates_tool_call_event(self, proxy):
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 42,
-            "method": "tools/call",
-            "params": {
-                "name": "Read",
-                "arguments": {"file_path": "/etc/passwd"},
-            },
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 42,
+                "method": "tools/call",
+                "params": {
+                    "name": "Read",
+                    "arguments": {"file_path": "/etc/passwd"},
+                },
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_client_message(msg)
 
@@ -63,24 +67,28 @@ class TestProcessClientMessage:
 
     @pytest.mark.anyio
     async def test_tracks_inflight_request(self, proxy):
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 99,
-            "method": "tools/call",
-            "params": {"name": "Bash", "arguments": {"command": "ls"}},
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 99,
+                "method": "tools/call",
+                "params": {"name": "Bash", "arguments": {"command": "ls"}},
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_client_message(msg)
         assert 99 in proxy._inflight
 
     @pytest.mark.anyio
     async def test_ignores_non_tool_methods(self, proxy):
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "notifications/cancelled",
-            "params": {},
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "notifications/cancelled",
+                "params": {},
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_client_message(msg)
         proxy._emit.assert_not_called()
@@ -96,14 +104,16 @@ class TestProcessServerMessage:
     @pytest.mark.anyio
     async def test_creates_tool_result_event(self, proxy):
         proxy._inflight[42] = (datetime.now(UTC), "Read")
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 42,
-            "result": {
-                "content": [{"type": "text", "text": "file contents here"}],
-                "isError": False,
-            },
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 42,
+                "result": {
+                    "content": [{"type": "text", "text": "file contents here"}],
+                    "isError": False,
+                },
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_server_message(msg)
 
@@ -118,11 +128,13 @@ class TestProcessServerMessage:
     @pytest.mark.anyio
     async def test_removes_inflight_after_response(self, proxy):
         proxy._inflight[42] = (datetime.now(UTC), "Read")
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 42,
-            "result": {"content": [], "isError": False},
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 42,
+                "result": {"content": [], "isError": False},
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_server_message(msg)
         assert 42 not in proxy._inflight
@@ -130,11 +142,13 @@ class TestProcessServerMessage:
     @pytest.mark.anyio
     async def test_handles_error_response(self, proxy):
         proxy._inflight[42] = (datetime.now(UTC), "Bash")
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 42,
-            "error": {"code": -1, "message": "command failed"},
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 42,
+                "error": {"code": -1, "message": "command failed"},
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_server_message(msg)
 
@@ -143,11 +157,13 @@ class TestProcessServerMessage:
 
     @pytest.mark.anyio
     async def test_ignores_messages_without_tracked_id(self, proxy):
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 999,
-            "result": {"content": []},
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 999,
+                "result": {"content": []},
+            }
+        )
         proxy._emit = AsyncMock()
         await proxy._process_server_message(msg)
         proxy._emit.assert_not_called()

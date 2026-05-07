@@ -5,7 +5,6 @@ import os
 import tempfile
 
 import anyio
-import pytest
 
 from agenttrail.server.outputs.jsonl import JSONLOutput
 from agenttrail.server.outputs.stdout import StdoutOutput
@@ -18,6 +17,7 @@ class TestJSONLOutput:
             path = f.name
 
         try:
+
             async def run():
                 output = JSONLOutput(path)
                 await output.write({"class_uid": 6003, "tool": "Read"})
@@ -40,6 +40,7 @@ class TestJSONLOutput:
             path = f.name
 
         try:
+
             async def run():
                 output = JSONLOutput(path)
                 await output.write({"n": 1})
@@ -61,6 +62,7 @@ class TestJSONLOutput:
             path = f.name
 
         try:
+
             async def run():
                 output = JSONLOutput(path)
                 for i in range(10):
