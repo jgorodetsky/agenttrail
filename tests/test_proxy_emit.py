@@ -1,8 +1,6 @@
 """Tests for proxy event emission logic."""
 
 import json
-import tempfile
-import os
 
 import anyio
 import pytest
@@ -54,9 +52,7 @@ class TestEmitToFile:
         async def run():
             proxy._log_file = await anyio.open_file(log_path, "a", encoding="utf-8")
             for _ in range(3):
-                event = ToolCallEvent(
-                    session_id="s1", tool_name="Ping", arguments={}
-                )
+                event = ToolCallEvent(session_id="s1", tool_name="Ping", arguments={})
                 await proxy._emit(event)
             await proxy._log_file.aclose()
 
@@ -92,12 +88,14 @@ class TestClientMessageParsing:
 
         proxy._emit = mock_emit
 
-        msg = json.dumps({
-            "jsonrpc": "2.0",
-            "id": 10,
-            "method": "tools/call",
-            "params": {"name": "Write", "arguments": {"path": "/tmp/x", "content": "hi"}},
-        })
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {"name": "Write", "arguments": {"path": "/tmp/x", "content": "hi"}},
+            }
+        )
 
         anyio.run(proxy._process_client_message, msg)
         assert len(events) == 1

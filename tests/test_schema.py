@@ -3,11 +3,8 @@
 import json
 from datetime import UTC, datetime
 
-import pytest
-
 from agenttrail.schema.event import (
     AuditEventType,
-    BaseAuditEvent,
     ClientInfo,
     InstructionsEvent,
     SessionEndEvent,

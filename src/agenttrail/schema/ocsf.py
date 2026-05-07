@@ -12,8 +12,6 @@ from agenttrail.schema.event import (
     AuditEventType,
     BaseAuditEvent,
     InstructionsEvent,
-    SessionEndEvent,
-    SessionStartEvent,
     SpawnEvent,
     ToolCallEvent,
     ToolResultEvent,

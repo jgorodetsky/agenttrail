@@ -8,8 +8,6 @@ import sys
 import anyio
 import click
 
-from agenttrail.schema.event import BaseAuditEvent
-
 
 @click.group()
 def main():
@@ -42,7 +40,9 @@ def proxy(name: str, collector: str | None, log: str | None, server_command: tup
 @main.command("collector")
 @click.option("--port", default=8100, help="port to listen on")
 @click.option("--host", default="0.0.0.0", help="host to bind to")
-@click.option("--output", "outputs", multiple=True, help="output config (e.g. jsonl:./audit.jsonl, stdout, webhook:https://...)")
+@click.option(
+    "--output", "outputs", multiple=True, help="output config (e.g. jsonl:./audit.jsonl, stdout, webhook:https://...)"
+)
 def collector_cmd(port: int, host: str, outputs: tuple[str, ...]):
     """start the central event collector"""
     import uvicorn
@@ -59,6 +59,7 @@ def collector_cmd(port: int, host: str, outputs: tuple[str, ...]):
 def schema():
     """print the JSON Schema for audit events"""
     from agenttrail.schema.event import ToolCallEvent
+
     click.echo(json.dumps(ToolCallEvent.model_json_schema(), indent=2))
 
 
@@ -100,19 +101,24 @@ def _parse_outputs(specs: tuple[str, ...]) -> list:
     for spec in specs:
         if spec == "stdout":
             from agenttrail.server.outputs.stdout import StdoutOutput
+
             outputs.append(StdoutOutput())
         elif spec.startswith("jsonl:"):
             from agenttrail.server.outputs.jsonl import JSONLOutput
+
             outputs.append(JSONLOutput(spec.split(":", 1)[1]))
         elif spec.startswith("webhook:"):
             from agenttrail.server.outputs.webhook import WebhookOutput
+
             outputs.append(WebhookOutput(spec.split(":", 1)[1]))
         elif spec.startswith("s3:"):
             from agenttrail.server.outputs.s3 import S3Output
+
             parts = spec.split(":", 1)[1]
             outputs.append(S3Output(bucket=parts))
         elif spec.startswith("sqs:"):
             from agenttrail.server.outputs.sqs import SQSOutput
+
             outputs.append(SQSOutput(queue_url=spec.split(":", 1)[1]))
         else:
             click.echo(f"unknown output: {spec}", err=True)

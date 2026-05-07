@@ -42,7 +42,7 @@ class TestValidateCommand:
 
     def test_rejects_invalid_json(self, runner, tmp_path):
         f = tmp_path / "bad.jsonl"
-        f.write_text('not json\n')
+        f.write_text("not json\n")
         result = runner.invoke(main, ["validate", str(f)])
         assert result.exit_code == 1
         assert "invalid JSON" in result.output

@@ -12,3 +12,4 @@ workspace/
 .coverage
 .pytest_cache/
 coverage.xml
+htmlcov/

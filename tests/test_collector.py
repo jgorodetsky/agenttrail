@@ -1,7 +1,5 @@
 """Unit tests for the central collector server."""
 
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
