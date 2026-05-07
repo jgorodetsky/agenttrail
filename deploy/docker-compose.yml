@@ -1,0 +1,23 @@
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./logs:/logs
+    command: ["--port", "8100", "--output", "jsonl:/logs/audit.jsonl", "--output", "stdout"]
+
+  proxy-filesystem:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy
+    depends_on:
+      - collector
+    environment:
+      - AGENTSEC_COLLECTOR_URL=http://collector:8100
+    command: ["--name", "filesystem", "--collector", "http://collector:8100", "npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    volumes:
+      - ./workspace:/workspace
+    stdin_open: true

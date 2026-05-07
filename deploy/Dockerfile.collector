@@ -1,0 +1,12 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+COPY pyproject.toml .
+COPY agenttrail/ agenttrail/
+
+RUN pip install --no-cache-dir .
+
+EXPOSE 8100
+
+ENTRYPOINT ["agenttrail", "collector"]
+CMD ["--port", "8100", "--output", "stdout"]
