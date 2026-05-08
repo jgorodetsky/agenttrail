@@ -124,29 +124,37 @@ Collectors capture agent actions from different sources and emit the same event 
 
 ## Quick start
 
+### 1. Start the collector (Docker)
+
+The collector is a standalone service - run it in a container:
+
+```bash
+docker run -p 8100:8100 -v $(pwd)/audit:/data \
+  agenttrail/collector \
+  --port 8100 --output jsonl:/data/audit.jsonl --output stdout
+```
+
+Or use Docker Compose for the full stack:
+
+```bash
+cd deploy && docker compose up
+```
+
+### 2. Install the proxy (pip)
+
+The proxy wraps local MCP servers on your machine. Since MCP servers run as local stdio processes, the proxy needs to run locally too:
+
 ```bash
 pip install agenttrail
 ```
 
-Start the collector (receives events, writes them somewhere):
-
-```bash
-agenttrail collector --port 8100 --output jsonl:./audit.jsonl --output stdout
-```
-
-Wrap an MCP server with the audit proxy (separate terminal):
+Wrap an MCP server with auditing:
 
 ```bash
 agenttrail proxy \
   --name filesystem \
   --collector http://localhost:8100 \
   -- npx @modelcontextprotocol/server-filesystem /tmp
-```
-
-Or deploy the full stack with Docker:
-
-```bash
-cd deploy && docker compose up
 ```
 
 ## CLI reference
