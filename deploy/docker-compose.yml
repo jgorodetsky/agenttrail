@@ -1,8 +1,8 @@
 services:
   collector:
     build:
-      context: .
-      dockerfile: Dockerfile.collector
+      context: ..
+      dockerfile: deploy/Dockerfile.collector
     ports:
       - "8100:8100"
     volumes:
@@ -11,13 +11,13 @@ services:
 
   proxy-filesystem:
     build:
-      context: .
-      dockerfile: Dockerfile.proxy
+      context: ..
+      dockerfile: deploy/Dockerfile.proxy
     depends_on:
       - collector
     environment:
       - AGENTSEC_COLLECTOR_URL=http://collector:8100
-    command: ["--name", "filesystem", "--collector", "http://collector:8100", "npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    command: ["--name", "filesystem", "--collector", "http://collector:8100", "--", "npx", "@modelcontextprotocol/server-filesystem", "/workspace"]
     volumes:
       - ./workspace:/workspace
     stdin_open: true
