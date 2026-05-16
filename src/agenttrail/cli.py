@@ -55,6 +55,48 @@ def collector_cmd(port: int, host: str, outputs: tuple[str, ...]):
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
+@main.group()
+def hooks():
+    """manage hooks-based collection (Claude Code, Cursor, etc.)"""
+    pass
+
+
+@hooks.command("install")
+@click.option("--collector", default=None, help="collector URL (e.g. http://localhost:8100)")
+@click.option("--log", default=None, help="local JSONL log path")
+@click.option("--platform", default="claude-code", type=click.Choice(["claude-code"]), help="target platform")
+def hooks_install(collector: str | None, log: str | None, platform: str):
+    """install agenttrail hooks into agent runtime settings"""
+    from agenttrail.collectors.hooks.install import install_claude_code
+
+    if not collector and not log:
+        log = "~/.agenttrail/audit.jsonl"
+
+    path = install_claude_code(collector_url=collector, log_path=log)
+    click.echo(f"installed agenttrail hooks in {path}")
+    click.echo("all tool calls will now emit OCSF audit events")
+
+
+@hooks.command("uninstall")
+@click.option("--platform", default="claude-code", type=click.Choice(["claude-code"]), help="target platform")
+def hooks_uninstall(platform: str):
+    """remove agenttrail hooks from agent runtime settings"""
+    from agenttrail.collectors.hooks.install import uninstall_claude_code
+
+    path = uninstall_claude_code()
+    click.echo(f"removed agenttrail hooks from {path}")
+
+
+@hooks.command("handler")
+@click.option("--collector", default=None, help="collector URL", envvar="AGENTTRAIL_COLLECTOR_URL")
+@click.option("--log", default=None, help="local JSONL log path", envvar="AGENTTRAIL_LOG_PATH")
+def hooks_handler(collector: str | None, log: str | None):
+    """handle a hook event from stdin (called by agent runtime)"""
+    from agenttrail.collectors.hooks.handler import run_handler
+
+    run_handler(collector_url=collector, log_path=log)
+
+
 @main.command()
 def schema():
     """print the JSON Schema for audit events"""
