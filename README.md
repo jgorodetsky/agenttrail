@@ -4,45 +4,103 @@ Structured audit logging for AI agent actions. Produces SIEM-ready events in [OC
 
 ## The problem
 
-AI agents call tools, run commands, read files, and take actions with no structured audit trail. OS and network logs capture fragments — process metadata, raw pipe bytes — but nothing produces security-focused, attributed events that a SIEM can ingest and write detection rules against.
+AI agents call tools, run commands, read files, spawn sub-agents, and take actions with no structured audit trail. OS-level logs capture process metadata and pipe bytes, but nothing produces security-focused, attributed events that a SIEM can ingest and write detection rules against.
 
-agenttrail is the collection layer. It intercepts agent-to-tool communication, produces standardized audit events, and delivers them to your SIEM. Detection is the SIEM's job. This is the camera, not the security guard.
+agenttrail captures everything an agent does - tool calls, prompts, permissions, sub-agent spawning, session lifecycle - and delivers it in a standard format your SIEM already understands. Detection is the SIEM's job. This is the camera, not the security guard.
 
-## Architecture
+## How it works
+
+agenttrail uses native hooks built into agent harnesses to intercept every action. One install command, full coverage.
 
 ```
-┌──────────────┐       ┌───────────────────────┐       ┌──────────────┐
-│              │       │    agenttrail proxy    │       │              │
-│  MCP Client  │──────▶│                       │──────▶│  MCP Server  │
-│  (agent)     │◀──────│  intercepts JSON-RPC   │◀──────│  (tool)      │
-│              │       │  creates audit events  │       │              │
-└──────────────┘       └───────────┬───────────┘       └──────────────┘
-                                   │
-                                   │ HTTP POST
-                                   ▼
-                       ┌───────────────────────┐
-                       │  agenttrail collector  │
-                       ��                       │
-                       │  receives events from  │
-                       │  N proxies, routes to  │
-                       │  configured outputs    │
-                       └───────────┬───────────┘
-                                   │
-                    ┌──────────────┼──────────────┐
-                    ▼              ▼              ▼
-              ┌──────────┐  ┌──────────┐  ┌──────────────┐
-              │  JSONL   │  │  S3/SQS  │  │   Webhook    │
-              │  file    │  │  (AWS)   │  │ (Splunk/ELK) │
-              └──────────┘  └──────────┘  └──────┬───────┘
-                                                  │
-                                                  ▼
-                                          ┌──────────────┐
-                                          │  Your SIEM   │
-                                          │  (detection) │
-                                          └──────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│  Agent Harness (Claude Code, Hermes Agent, Cursor, etc.)              │
+│                                                                       │
+│  agent decides ──▶ HOOK FIRES ──▶ action executes                    │
+│                        │                                              │
+│                        │ agenttrail handler receives event            │
+│                        │ creates OCSF audit event                     │
+│                        │ ships to collector                           │
+│                        │ returns "continue" (never blocks)            │
+│                        ▼                                              │
+└────────────────────────┼──────────────────────────────────────────────┘
+                         │
+                         │ HTTP POST
+                         ▼
+              ┌───────────────────────┐
+              │  agenttrail collector  │
+              │                       │
+              │  receives events from  │
+              │  all harnesses         │
+              └───────────┬───────────┘
+                          │
+              ┌───────────┼───────────┐
+              ▼           ▼           ▼
+         ┌────────┐ ┌────────┐ ┌──────────┐
+         │ JSONL  │ │ S3/SQS │ │ Webhook  │
+         │ file   │ │ (AWS)  │ │ (SIEM)   │
+         └────────┘ └────────┘ └──────────┘
 ```
 
-The proxy is transparent — agents and tools don't know it's there. Multiple proxies can feed a single collector. The collector routes to any combination of outputs.
+## What it captures
+
+Every action the agent takes, across all supported harnesses:
+
+| Category | Events captured |
+|----------|----------------|
+| **Tool calls** | Pre-execution (what the agent wants to do), post-execution (what happened), failures |
+| **Prompts** | User input, slash command expansions, prompt content |
+| **Permissions** | Permission requests, denials |
+| **Sub-agents** | Spawning child agents, child completion |
+| **Sessions** | Start, end, turn completion |
+| **Instructions** | CLAUDE.md and rules files loaded |
+
+## Quick start
+
+```bash
+pip install agenttrail
+```
+
+### 1. Install hooks (one command, covers everything)
+
+```bash
+# Claude Code
+agenttrail hooks install --platform claude-code --collector http://localhost:8100
+
+# Hermes Agent
+agenttrail hooks install --platform hermes --collector http://localhost:8100
+```
+
+This registers agenttrail with your harness. Every tool call, prompt, permission decision, and sub-agent spawn will now emit an OCSF audit event.
+
+### 2. Start the collector
+
+```bash
+# Local (writes to file + prints to terminal)
+agenttrail collector --port 8100 --output jsonl:./audit.jsonl --output stdout
+
+# Docker
+docker run -p 8100:8100 -v $(pwd)/audit:/data \
+  agenttrail/collector --output jsonl:/data/audit.jsonl --output stdout
+```
+
+### 3. Use your agent normally
+
+Every action produces an OCSF event. View them:
+
+```bash
+tail -f audit.jsonl | python -m json.tool
+```
+
+## Supported harnesses
+
+| Harness | Install method | Config location |
+|---------|---------------|-----------------|
+| **Claude Code** | `agenttrail hooks install --platform claude-code` | `~/.claude/settings.json` |
+| **Hermes Agent** | `agenttrail hooks install --platform hermes` | `~/.hermes/config.yaml` |
+| **Any MCP client** | `agenttrail proxy --name <name> -- <cmd>` | CLI flag (fallback for harnesses without hooks) |
+
+The same handler works across all harnesses. Different input formats are normalized into identical OCSF output.
 
 ## Event output
 
@@ -60,20 +118,15 @@ Each agent action becomes an [OCSF API Activity](https://schema.ocsf.io/1.3.0/cl
     "session": { "uid": "sess-abc123" }
   },
   "src_endpoint": { "type_id": 99, "name": "claude-code" },
-  "dst_endpoint": { "type_id": 1, "name": "filesystem" },
+  "dst_endpoint": { "type_id": 1, "name": "builtin" },
   "api": {
     "operation": "tools/call",
-    "service": { "name": "Read" }
-  },
-  "metadata": {
-    "version": "1.8.0",
-    "product": { "name": "agenttrail", "vendor_name": "agenttrail" },
-    "correlation_uid": "sess-abc123"
+    "service": { "name": "Bash" }
   },
   "unmapped": {
     "aos": {
       "context": {
-        "agent": { "id": "sess-abc123", "name": "claude-code", "version": "2.1.0" },
+        "agent": { "id": "sess-abc123", "name": "claude-code" },
         "session": { "id": "sess-abc123" }
       },
       "step": {
@@ -81,16 +134,15 @@ Each agent action becomes an [OCSF API Activity](https://schema.ocsf.io/1.3.0/cl
         "operation": {
           "type": "tool_execution",
           "tool": {
-            "id": "Read",
-            "execution_id": "42",
-            "inputs": [{ "name": "file_path", "value": "/etc/passwd" }]
+            "id": "Bash",
+            "inputs": [{ "name": "command", "value": "ls /tmp" }]
           }
         }
       }
     },
     "agenttrail": {
-      "arguments_hash": "sha256:495e17b31c49e96d2c3487836bd869fd4cfd57a7d81c4ed11ed2025a0878301e",
-      "arguments_summary": "{\"file_path\":\"/etc/passwd\"}",
+      "arguments_hash": "sha256:...",
+      "arguments_summary": "{\"command\":\"ls /tmp\"}",
       "raw_message_bytes": 247
     }
   }
@@ -101,69 +153,33 @@ Each agent action becomes an [OCSF API Activity](https://schema.ocsf.io/1.3.0/cl
 |-------|----------|---------|
 | OCSF standard | Top-level fields | Any SIEM reads these natively |
 | AOS agent data | `unmapped.aos.*` | Agent context, step type, tool inputs/outputs per [AOS spec](https://aos.owasp.org/spec/trace/events/) |
-| agenttrail extensions | `unmapped.agenttrail.*` | Security enrichment — argument hashing, message sizing |
+| agenttrail extensions | `unmapped.agenttrail.*` | Security enrichment - argument hashing, message sizing |
 
-## Collectors
+## Collection methods
 
-Collectors capture agent actions from different sources and emit the same event format.
-
-| Collector | What it intercepts | How | Status |
-|-----------|-------------------|-----|--------|
-| **MCP stdio proxy** | Tool calls over MCP stdio transport | Pipe-in-the-middle between client and server | Built |
-| **Anthropic SDK wrapper** | Claude API tool_use content blocks | Wraps the Python client library | Planned |
-| **OpenAI SDK wrapper** | GPT function_call / tool_calls | Wraps the Python client library | Planned |
-| **HTTP MCP proxy** | Tool calls over MCP HTTP/SSE transport | Reverse proxy | Planned |
+| Method | Use case | Scope |
+|--------|----------|-------|
+| **Hooks** (primary) | Harness supports native hooks | Everything - tool calls, prompts, permissions, sub-agents, sessions |
+| **MCP proxy** (fallback) | Harness has no hooks, or you need infra-level monitoring | MCP tool calls only |
 
 ## Standards
 
 | Standard | Version | What we implement |
 |----------|---------|-------------------|
-| [OWASP AOS](https://aos.owasp.org/) | v0.1.0 | Event types (`steps/toolCallRequest`, `steps/toolCallResult`, `steps/agentTrigger`, etc.), StepContext, agent identity |
-| [OCSF](https://ocsf.io/) | v1.8 | API Activity class 6003, `ai_operation` profile, actor/endpoint mapping |
-| agenttrail | — | `arguments_hash` (sha256), `arguments_summary`, `raw_message_bytes`, `result_hash` |
-
-## Quick start
-
-### 1. Start the collector (Docker)
-
-The collector is a standalone service - run it in a container:
-
-```bash
-docker run -p 8100:8100 -v $(pwd)/audit:/data \
-  agenttrail/collector \
-  --port 8100 --output jsonl:/data/audit.jsonl --output stdout
-```
-
-Or use Docker Compose for the full stack:
-
-```bash
-cd deploy && docker compose up
-```
-
-### 2. Install the proxy (pip)
-
-The proxy wraps local MCP servers on your machine. Since MCP servers run as local stdio processes, the proxy needs to run locally too:
-
-```bash
-pip install agenttrail
-```
-
-Wrap an MCP server with auditing:
-
-```bash
-agenttrail proxy \
-  --name filesystem \
-  --collector http://localhost:8100 \
-  -- npx @modelcontextprotocol/server-filesystem /tmp
-```
+| [OWASP AOS](https://aos.owasp.org/) | v0.1.0 | Event types, StepContext, agent identity, session tracking |
+| [OCSF](https://ocsf.io/) | v1.8 | API Activity class 6003, actor/endpoint mapping |
+| agenttrail | - | `arguments_hash`, `arguments_summary`, `raw_message_bytes`, `result_hash` |
 
 ## CLI reference
 
 | Command | Purpose |
 |---------|---------|
-| `agenttrail proxy --name <name> --collector <url> -- <cmd>` | Wrap an MCP server with the audit proxy |
+| `agenttrail hooks install --platform <name>` | Install hooks into a harness |
+| `agenttrail hooks uninstall --platform <name>` | Remove hooks from a harness |
+| `agenttrail hooks handler` | Handle a hook event (called by harness, not by user) |
 | `agenttrail collector --port <port> --output <spec>` | Start the central event collector |
-| `agenttrail schema` | Print JSON Schema for audit events to stdout |
+| `agenttrail proxy --name <name> -- <cmd>` | MCP proxy fallback for harnesses without hooks |
+| `agenttrail schema` | Print JSON Schema for audit events |
 | `agenttrail validate <file.jsonl>` | Validate JSONL against the event schema |
 
 ### Output specs
@@ -179,28 +195,25 @@ agenttrail proxy \
 ## Project structure
 
 ```
-src/agenttrail/            Python package (src layout)
+src/agenttrail/
   schema/
     event.py               Pydantic models for AOS event types
     ocsf.py                AOS-to-OCSF mapping (class 6003)
   collectors/
+    hooks/
+      handler.py           Universal hook handler (normalizes all harness formats)
+      install.py           Per-harness installers (Claude Code, Hermes)
     mcp/
-      proxy.py             MCP stdio audit proxy
+      proxy.py             MCP stdio proxy (fallback for harnesses without hooks)
       config.py            Proxy configuration
-    base.py                Collector interface for future implementations
   server/
     collector.py           Central HTTP collector (FastAPI)
     outputs/               Output backends (JSONL, stdout, webhook, S3, SQS)
   cli.py                   CLI entry point (Click)
-  py.typed                 PEP 561 type checking marker
 
 deploy/                    Docker deployment
-  Dockerfile.proxy         Proxy image (includes Node.js for npx MCP servers)
-  Dockerfile.collector     Collector image
-  docker-compose.yml       Full stack example
-
-tests/                     Unit tests (106 tests, 80%+ coverage gate)
-.github/workflows/ci.yml  CI pipeline (lint + test matrix on Python 3.11/3.12)
+tests/                     161 tests, 80%+ coverage gate
+.github/workflows/ci.yml  CI pipeline (lint + test on Python 3.11/3.12)
 ```
 
 ## Development
@@ -212,8 +225,6 @@ uv venv && source .venv/bin/activate
 uv pip install -e ".[dev]"
 pytest --cov
 ```
-
-CI runs on every PR — tests must pass with 80%+ coverage before merge.
 
 ## License
 
