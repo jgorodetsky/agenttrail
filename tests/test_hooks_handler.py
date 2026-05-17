@@ -2,7 +2,14 @@
 
 import json
 
-from agenttrail.collectors.hooks.handler import handle_hook_event, _normalize_event_name, _detect_agent_name, _infer_server_name, _extract_arguments, _is_error_result
+from agenttrail.collectors.hooks.handler import (
+    _detect_agent_name,
+    _extract_arguments,
+    _infer_server_name,
+    _is_error_result,
+    _normalize_event_name,
+    handle_hook_event,
+)
 
 
 class TestNormalizeEventName:
@@ -110,7 +117,12 @@ class TestHandleHookEvent:
 
     def test_post_tool_call_produces_event(self):
         result = handle_hook_event(
-            {"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": {"stdout": "ok"}, "session_id": "s1"},
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Bash",
+                "tool_output": {"stdout": "ok"},
+                "session_id": "s1",
+            },
             collector_url=None,
             log_path=None,
         )
@@ -118,7 +130,12 @@ class TestHandleHookEvent:
 
     def test_post_tool_failure(self):
         result = handle_hook_event(
-            {"hook_event_name": "PostToolUseFailure", "tool_name": "Bash", "error": {"message": "failed"}, "session_id": "s1"},
+            {
+                "hook_event_name": "PostToolUseFailure",
+                "tool_name": "Bash",
+                "error": {"message": "failed"},
+                "session_id": "s1",
+            },
             collector_url=None,
             log_path=None,
         )
@@ -142,7 +159,12 @@ class TestHandleHookEvent:
 
     def test_permission_request(self):
         result = handle_hook_event(
-            {"hook_event_name": "PermissionRequest", "tool_name": "Bash", "tool_input": {"command": "rm -rf /"}, "session_id": "s1"},
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "Bash",
+                "tool_input": {"command": "rm -rf /"},
+                "session_id": "s1",
+            },
             collector_url=None,
             log_path=None,
         )
@@ -199,7 +221,12 @@ class TestHandleHookEvent:
     def test_writes_to_log_path(self, tmp_path):
         log_file = tmp_path / "audit.jsonl"
         handle_hook_event(
-            {"hook_event_name": "PreToolUse", "tool_name": "Read", "tool_input": {"file_path": "/tmp/x"}, "session_id": "s1"},
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Read",
+                "tool_input": {"file_path": "/tmp/x"},
+                "session_id": "s1",
+            },
             collector_url=None,
             log_path=str(log_file),
         )
@@ -211,7 +238,14 @@ class TestHandleHookEvent:
 
     def test_hermes_format_works(self):
         result = handle_hook_event(
-            {"hook_event_name": "pre_tool_call", "tool_name": "terminal", "args": {"command": "whoami"}, "session_id": "s2", "tool_call_id": "tc1", "task_id": "t1"},
+            {
+                "hook_event_name": "pre_tool_call",
+                "tool_name": "terminal",
+                "args": {"command": "whoami"},
+                "session_id": "s2",
+                "tool_call_id": "tc1",
+                "task_id": "t1",
+            },
             collector_url=None,
             log_path=None,
         )
