@@ -7,7 +7,6 @@ from pathlib import Path
 
 import yaml
 
-
 CLAUDE_CODE_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 HERMES_CONFIG_PATH = Path.home() / ".hermes" / "config.yaml"
 
@@ -33,11 +32,19 @@ def install_claude_code(collector_url: str | None = None, log_path: str | None =
     command = _build_handler_command(collector_url, log_path)
 
     hook_events = [
-        "PreToolUse", "PostToolUse", "PostToolUseFailure",
-        "UserPromptSubmit", "UserPromptExpansion",
-        "SessionStart", "SessionEnd", "Stop", "StopFailure",
-        "PermissionRequest", "PermissionDenied",
-        "SubagentStart", "SubagentStop",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "UserPromptSubmit",
+        "UserPromptExpansion",
+        "SessionStart",
+        "SessionEnd",
+        "Stop",
+        "StopFailure",
+        "PermissionRequest",
+        "PermissionDenied",
+        "SubagentStart",
+        "SubagentStop",
         "InstructionsLoaded",
     ]
 
@@ -50,9 +57,7 @@ def install_claude_code(collector_url: str | None = None, log_path: str | None =
             existing["hooks"][event] = [entry]
         else:
             already_installed = any(
-                "agenttrail" in hook.get("command", "")
-                for e in existing["hooks"][event]
-                for hook in e.get("hooks", [])
+                "agenttrail" in hook.get("command", "") for e in existing["hooks"][event] for hook in e.get("hooks", [])
             )
             if not already_installed:
                 existing["hooks"][event].append(entry)
@@ -105,11 +110,15 @@ def install_hermes(collector_url: str | None = None, log_path: str | None = None
     command = _build_handler_command(collector_url, log_path)
 
     hook_events = [
-        "pre_tool_call", "post_tool_call",
-        "pre_llm_call", "post_llm_call",
-        "on_session_start", "on_session_end",
+        "pre_tool_call",
+        "post_tool_call",
+        "pre_llm_call",
+        "post_llm_call",
+        "on_session_start",
+        "on_session_end",
         "subagent_stop",
-        "pre_approval_request", "post_approval_response",
+        "pre_approval_request",
+        "post_approval_response",
     ]
 
     if "hooks" not in existing:
@@ -141,9 +150,7 @@ def uninstall_hermes() -> Path:
         return config_path
 
     for event in list(existing["hooks"].keys()):
-        existing["hooks"][event] = [
-            h for h in existing["hooks"][event] if "agenttrail" not in h.get("command", "")
-        ]
+        existing["hooks"][event] = [h for h in existing["hooks"][event] if "agenttrail" not in h.get("command", "")]
         if not existing["hooks"][event]:
             del existing["hooks"][event]
 

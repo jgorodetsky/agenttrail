@@ -50,7 +50,6 @@ def handle_hook_event(event_json: dict, collector_url: str | None, log_path: str
     elif event_name in ("post_tool_call", "post_tool_call_failure"):
         tool_name = event_json.get("tool_name", "unknown")
         result_data = event_json.get("tool_output") or event_json.get("tool_result") or event_json.get("result", "")
-        error_data = event_json.get("error")
         result_str = result_data if isinstance(result_data, str) else json.dumps(result_data, default=str)
         result_summary = result_str[:200]
         result_hash = f"sha256:{hashlib.sha256(result_str.encode()).hexdigest()}" if result_str else ""
@@ -207,10 +206,23 @@ def _detect_agent_name(event_json: dict) -> str:
 
 def _infer_server_name(tool_name: str) -> str:
     builtins = {
-        "Bash", "Read", "Edit", "Write", "Agent", "WebFetch", "WebSearch",
-        "Glob", "Grep", "NotebookEdit",
-        "terminal", "write_file", "read_file", "search_files", "list_dir",
-        "web_search", "web_browse",
+        "Bash",
+        "Read",
+        "Edit",
+        "Write",
+        "Agent",
+        "WebFetch",
+        "WebSearch",
+        "Glob",
+        "Grep",
+        "NotebookEdit",
+        "terminal",
+        "write_file",
+        "read_file",
+        "search_files",
+        "list_dir",
+        "web_search",
+        "web_browse",
     }
     if tool_name in builtins:
         return "builtin"
