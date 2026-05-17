@@ -1,7 +1,9 @@
 """Hook event handler.
 
-Receives hook event JSON on stdin from agent runtimes (Claude Code, Cursor, etc.),
-creates audit events, wraps in OCSF, and ships to collector or local JSONL.
+Universal handler for all agent harnesses. Receives hook event JSON on stdin,
+normalizes different harness formats, creates OCSF audit events, ships them.
+
+Works with: Claude Code, Hermes Agent, Cursor (all use stdin/stdout pattern).
 """
 
 from __future__ import annotations
@@ -10,15 +12,15 @@ import hashlib
 import json
 import sys
 import uuid
-from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
 
 from agenttrail.schema.event import (
-    AuditEventType,
+    InstructionsEvent,
     SessionEndEvent,
     SessionStartEvent,
+    SpawnEvent,
     ToolCallEvent,
     ToolResultEvent,
 )
@@ -26,58 +28,117 @@ from agenttrail.schema.ocsf import to_ocsf
 
 
 def handle_hook_event(event_json: dict, collector_url: str | None, log_path: str | None) -> dict:
-    """Process a single hook event and emit an OCSF audit event.
-
-    Returns the hook response (always allows continuation).
-    """
-    hook_event_name = event_json.get("hook_event_name", "")
-    tool_name = event_json.get("tool_name", "unknown")
-    tool_input = event_json.get("tool_input", {})
-    tool_output = event_json.get("tool_output")
+    """Process a single hook event and emit an OCSF audit event."""
+    event_name = _normalize_event_name(event_json)
     session_id = event_json.get("session_id", str(uuid.uuid4()))
+    agent_name = _detect_agent_name(event_json)
+    raw_bytes = len(json.dumps(event_json).encode("utf-8"))
 
     audit_event = None
 
-    if hook_event_name == "PreToolUse":
-        arguments = tool_input if isinstance(tool_input, dict) else {}
+    if event_name == "pre_tool_call":
+        tool_name = event_json.get("tool_name", "unknown")
         audit_event = ToolCallEvent(
             session_id=session_id,
-            agent_name=_detect_agent_name(event_json),
+            agent_name=agent_name,
             server_name=_infer_server_name(tool_name),
             tool_name=tool_name,
-            arguments=arguments,
-            raw_message_bytes=len(json.dumps(event_json).encode("utf-8")),
+            arguments=_extract_arguments(event_json),
+            raw_message_bytes=raw_bytes,
         )
 
-    elif hook_event_name == "PostToolUse":
-        result_data = tool_output if isinstance(tool_output, dict) else {}
-        result_str = json.dumps(result_data, default=str)
+    elif event_name in ("post_tool_call", "post_tool_call_failure"):
+        tool_name = event_json.get("tool_name", "unknown")
+        result_data = event_json.get("tool_output") or event_json.get("tool_result") or event_json.get("result", "")
+        error_data = event_json.get("error")
+        result_str = result_data if isinstance(result_data, str) else json.dumps(result_data, default=str)
         result_summary = result_str[:200]
-        result_hash = f"sha256:{hashlib.sha256(result_str.encode()).hexdigest()}"
-        is_error = _is_error_result(tool_output)
+        result_hash = f"sha256:{hashlib.sha256(result_str.encode()).hexdigest()}" if result_str else ""
 
         audit_event = ToolResultEvent(
             session_id=session_id,
-            agent_name=_detect_agent_name(event_json),
+            agent_name=agent_name,
             server_name=_infer_server_name(tool_name),
             tool_name=tool_name,
             result_summary=result_summary,
             result_hash=result_hash,
-            is_error=is_error,
-            raw_message_bytes=len(json.dumps(event_json).encode("utf-8")),
+            is_error=event_name == "post_tool_call_failure" or _is_error_result(event_json),
+            duration_ms=event_json.get("duration_ms", 0),
+            raw_message_bytes=raw_bytes,
         )
 
-    elif hook_event_name == "SessionStart":
+    elif event_name == "prompt_submit":
+        prompt = event_json.get("prompt", event_json.get("content", ""))
+        audit_event = InstructionsEvent(
+            session_id=session_id,
+            agent_name=agent_name,
+            role="user",
+            content=prompt[:2000],
+        )
+
+    elif event_name == "instructions_loaded":
+        audit_event = InstructionsEvent(
+            session_id=session_id,
+            agent_name=agent_name,
+            role="system",
+            content=f"loaded: {event_json.get('file_path', 'unknown')}",
+        )
+
+    elif event_name == "permission_request":
+        tool_name = event_json.get("tool_name", "unknown")
+        audit_event = ToolCallEvent(
+            session_id=session_id,
+            agent_name=agent_name,
+            server_name="permission",
+            tool_name=f"permission_request:{tool_name}",
+            arguments=_extract_arguments(event_json),
+            raw_message_bytes=raw_bytes,
+        )
+
+    elif event_name == "permission_denied":
+        tool_name = event_json.get("tool_name", "unknown")
+        audit_event = ToolResultEvent(
+            session_id=session_id,
+            agent_name=agent_name,
+            server_name="permission",
+            tool_name=f"permission_denied:{tool_name}",
+            result_summary="denied",
+            result_hash="",
+            is_error=True,
+            raw_message_bytes=raw_bytes,
+        )
+
+    elif event_name == "subagent_start":
+        audit_event = SpawnEvent(
+            session_id=session_id,
+            agent_name=agent_name,
+            child_agent_id=event_json.get("agent_id", ""),
+            child_agent_name=event_json.get("agent_type", "unknown"),
+        )
+
+    elif event_name == "subagent_stop":
+        audit_event = SessionEndEvent(
+            session_id=event_json.get("agent_id", session_id),
+            agent_name=event_json.get("agent_type", agent_name),
+        )
+
+    elif event_name == "session_start":
         audit_event = SessionStartEvent(
             session_id=session_id,
-            agent_name=_detect_agent_name(event_json),
+            agent_name=agent_name,
             tools_available=[],
         )
 
-    elif hook_event_name == "SessionEnd":
+    elif event_name == "session_end":
         audit_event = SessionEndEvent(
             session_id=session_id,
-            agent_name=_detect_agent_name(event_json),
+            agent_name=agent_name,
+        )
+
+    elif event_name == "stop":
+        audit_event = SessionEndEvent(
+            session_id=session_id,
+            agent_name=agent_name,
         )
 
     if audit_event:
@@ -87,26 +148,77 @@ def handle_hook_event(event_json: dict, collector_url: str | None, log_path: str
     return {"continue": True}
 
 
+def _normalize_event_name(event_json: dict) -> str:
+    """Normalize event names across different harness formats."""
+    raw = event_json.get("hook_event_name", event_json.get("event", ""))
+
+    mapping = {
+        # Claude Code
+        "PreToolUse": "pre_tool_call",
+        "PostToolUse": "post_tool_call",
+        "PostToolUseFailure": "post_tool_call_failure",
+        "UserPromptSubmit": "prompt_submit",
+        "UserPromptExpansion": "prompt_submit",
+        "SessionStart": "session_start",
+        "SessionEnd": "session_end",
+        "Stop": "stop",
+        "StopFailure": "stop",
+        "PermissionRequest": "permission_request",
+        "PermissionDenied": "permission_denied",
+        "SubagentStart": "subagent_start",
+        "SubagentStop": "subagent_stop",
+        "InstructionsLoaded": "instructions_loaded",
+        # Hermes Agent
+        "pre_tool_call": "pre_tool_call",
+        "post_tool_call": "post_tool_call",
+        "pre_llm_call": "prompt_submit",
+        "post_llm_call": "stop",
+        "on_session_start": "session_start",
+        "on_session_end": "session_end",
+        "subagent_stop": "subagent_stop",
+        # Cursor
+        "beforeMCPExecution": "pre_tool_call",
+        "afterMCPExecution": "post_tool_call",
+        "beforeShellExecution": "pre_tool_call",
+        "afterShellExecution": "post_tool_call",
+        "beforeSubmitPrompt": "prompt_submit",
+    }
+
+    return mapping.get(raw, raw)
+
+
+def _extract_arguments(event_json: dict) -> dict:
+    """Extract tool arguments from different harness formats."""
+    tool_input = event_json.get("tool_input") or event_json.get("args") or {}
+    if isinstance(tool_input, dict):
+        return tool_input
+    return {}
+
+
 def _detect_agent_name(event_json: dict) -> str:
-    """Detect agent name from hook event context."""
-    if "CLAUDE_CODE" in str(event_json.get("transcript_path", "")):
+    if event_json.get("agent_name"):
+        return event_json["agent_name"]
+    if "transcript_path" in event_json:
         return "claude-code"
-    return event_json.get("agent_name", "unknown")
+    if "task_id" in event_json and "tool_call_id" in event_json:
+        return "hermes-agent"
+    return "unknown"
 
 
 def _infer_server_name(tool_name: str) -> str:
-    """Infer server name from tool name.
-
-    Built-in tools (Bash, Read, Edit, Write) are native, not MCP.
-    MCP tools typically have namespaced names.
-    """
-    builtins = {"Bash", "Read", "Edit", "Write", "Agent", "WebFetch", "WebSearch", "Glob", "Grep"}
+    builtins = {
+        "Bash", "Read", "Edit", "Write", "Agent", "WebFetch", "WebSearch",
+        "Glob", "Grep", "NotebookEdit",
+        "terminal", "write_file", "read_file", "search_files", "list_dir",
+        "web_search", "web_browse",
+    }
     if tool_name in builtins:
         return "builtin"
     return "mcp"
 
 
-def _is_error_result(tool_output: dict | None) -> bool:
+def _is_error_result(event_json: dict) -> bool:
+    tool_output = event_json.get("tool_output") or event_json.get("result")
     if not tool_output:
         return False
     if isinstance(tool_output, dict):
@@ -115,7 +227,6 @@ def _is_error_result(tool_output: dict | None) -> bool:
 
 
 def _ship_event(ocsf_event: dict, collector_url: str | None, log_path: str | None) -> None:
-    """Send event to collector and/or write to local JSONL."""
     event_json = json.dumps(ocsf_event, default=str)
 
     if collector_url:

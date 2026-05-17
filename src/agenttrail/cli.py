@@ -64,26 +64,38 @@ def hooks():
 @hooks.command("install")
 @click.option("--collector", default=None, help="collector URL (e.g. http://localhost:8100)")
 @click.option("--log", default=None, help="local JSONL log path")
-@click.option("--platform", default="claude-code", type=click.Choice(["claude-code"]), help="target platform")
+@click.option("--platform", default="claude-code", type=click.Choice(["claude-code", "hermes"]), help="target platform")
 def hooks_install(collector: str | None, log: str | None, platform: str):
     """install agenttrail hooks into agent runtime settings"""
-    from agenttrail.collectors.hooks.install import install_claude_code
-
     if not collector and not log:
         log = "~/.agenttrail/audit.jsonl"
 
-    path = install_claude_code(collector_url=collector, log_path=log)
+    if platform == "claude-code":
+        from agenttrail.collectors.hooks.install import install_claude_code
+
+        path = install_claude_code(collector_url=collector, log_path=log)
+    elif platform == "hermes":
+        from agenttrail.collectors.hooks.install import install_hermes
+
+        path = install_hermes(collector_url=collector, log_path=log)
+
     click.echo(f"installed agenttrail hooks in {path}")
     click.echo("all tool calls will now emit OCSF audit events")
 
 
 @hooks.command("uninstall")
-@click.option("--platform", default="claude-code", type=click.Choice(["claude-code"]), help="target platform")
+@click.option("--platform", default="claude-code", type=click.Choice(["claude-code", "hermes"]), help="target platform")
 def hooks_uninstall(platform: str):
     """remove agenttrail hooks from agent runtime settings"""
-    from agenttrail.collectors.hooks.install import uninstall_claude_code
+    if platform == "claude-code":
+        from agenttrail.collectors.hooks.install import uninstall_claude_code
 
-    path = uninstall_claude_code()
+        path = uninstall_claude_code()
+    elif platform == "hermes":
+        from agenttrail.collectors.hooks.install import uninstall_hermes
+
+        path = uninstall_hermes()
+
     click.echo(f"removed agenttrail hooks from {path}")
 
 
