@@ -13,10 +13,10 @@ import sys
 import uuid
 from datetime import UTC, datetime
 from io import TextIOWrapper
+from typing import Any
 
 import anyio
 import httpx
-from mcp.types import JSONRPCMessage
 
 from agenttrail.collectors.mcp.config import ProxyConfig
 from agenttrail.schema.event import (
@@ -27,6 +27,21 @@ from agenttrail.schema.event import (
     ToolResultEvent,
 )
 from agenttrail.schema.ocsf import to_ocsf
+
+
+def _parse_jsonrpc(raw: str) -> dict[str, Any] | None:
+    # plain JSON, not mcp.types models, so the proxy does not break when the SDK changes its types
+    try:
+        msg = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(msg, dict) or msg.get("jsonrpc") != "2.0":
+        return None
+    return msg
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 class MCPAuditProxy:
@@ -113,37 +128,23 @@ class MCPAuditProxy:
                 await client_stdout.flush()
 
     async def _process_client_message(self, raw: str) -> None:
-        try:
-            msg = JSONRPCMessage.model_validate_json(raw)
-        except Exception:
+        msg = _parse_jsonrpc(raw)
+        if msg is None:
             return
 
-        root = msg.root
-        method = getattr(root, "method", None)
-        params = getattr(root, "params", None)
-        msg_id = getattr(root, "id", None)
+        method = msg.get("method")
+        params = _as_dict(msg.get("params"))
+        msg_id = msg.get("id")
 
         if method == "initialize" and params:
-            client_info_raw = (
-                params.get("clientInfo") if isinstance(params, dict) else getattr(params, "clientInfo", None)
-            )
-            if client_info_raw:
-                info = (
-                    client_info_raw
-                    if isinstance(client_info_raw, dict)
-                    else client_info_raw.model_dump()
-                    if hasattr(client_info_raw, "model_dump")
-                    else {}
-                )
+            info = _as_dict(params.get("clientInfo"))
+            if info:
                 self.agent_name = info.get("name")
                 self.agent_version = info.get("version")
 
         elif method == "tools/call" and params:
-            params_dict = (
-                params.model_dump() if hasattr(params, "model_dump") else params if isinstance(params, dict) else {}
-            )
-            tool_name = params_dict.get("name", "unknown")
-            arguments = params_dict.get("arguments", {})
+            tool_name = params.get("name", "unknown")
+            arguments = params.get("arguments", {})
 
             event = ToolCallEvent(
                 session_id=self.session_id,
@@ -161,19 +162,16 @@ class MCPAuditProxy:
                 self._inflight[msg_id] = (datetime.now(UTC), tool_name)
 
     async def _process_server_message(self, raw: str) -> None:
-        try:
-            msg = JSONRPCMessage.model_validate_json(raw)
-        except Exception:
+        msg = _parse_jsonrpc(raw)
+        if msg is None:
             return
 
-        root = msg.root
-        msg_id = getattr(root, "id", None)
-        result = getattr(root, "result", None)
-        error = getattr(root, "error", None)
+        msg_id = msg.get("id")
+        result = _as_dict(msg.get("result"))
+        error = msg.get("error")
 
-        if result and hasattr(result, "serverInfo"):
-            server_info = result.serverInfo
-            info = server_info.model_dump() if hasattr(server_info, "model_dump") else {}
+        if result and "serverInfo" in result:
+            info = _as_dict(result["serverInfo"])
             tools: list[str] = []
             event = SessionStartEvent(
                 session_id=self.session_id,
@@ -189,12 +187,8 @@ class MCPAuditProxy:
             )
             await self._emit(event)
 
-        if result and hasattr(result, "tools"):
-            tool_list = result.tools or []
-            tool_names = []
-            for t in tool_list:
-                name = t.name if hasattr(t, "name") else t.get("name", "unknown") if isinstance(t, dict) else "unknown"
-                tool_names.append(name)
+        if result and "tools" in result:
+            tool_names = [_as_dict(t).get("name", "unknown") for t in result["tools"] or []]
             event = SessionStartEvent(
                 session_id=self.session_id,
                 agent_name=self.agent_name,
@@ -210,22 +204,14 @@ class MCPAuditProxy:
             is_error = error is not None
             result_summary = ""
             if result:
-                content = getattr(result, "content", None)
-                if content and isinstance(content, list) and len(content) > 0:
+                content = result.get("content")
+                if content and isinstance(content, list):
                     first = content[0]
-                    text = getattr(first, "text", None) or str(first)
+                    text = _as_dict(first).get("text") or str(first)
                     result_summary = text[:200]
-                is_error = is_error or getattr(result, "isError", False)
+                is_error = is_error or bool(result.get("isError", False))
 
-            result_canonical = (
-                json.dumps(
-                    result.model_dump() if hasattr(result, "model_dump") else str(result),
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                if result
-                else ""
-            )
+            result_canonical = json.dumps(result, sort_keys=True, separators=(",", ":")) if result else ""
             result_hash = f"sha256:{hashlib.sha256(result_canonical.encode()).hexdigest()}" if result_canonical else ""
 
             event = ToolResultEvent(

@@ -99,6 +99,13 @@ class TestProcessClientMessage:
         await proxy._process_client_message("not valid json {{{")
         proxy._emit.assert_not_called()
 
+    @pytest.mark.anyio
+    async def test_ignores_json_that_is_not_jsonrpc(self, proxy):
+        proxy._emit = AsyncMock()
+        await proxy._process_client_message(json.dumps({"method": "tools/call", "params": {"name": "Read"}}))
+        await proxy._process_client_message(json.dumps(["jsonrpc", "2.0"]))
+        proxy._emit.assert_not_called()
+
 
 class TestProcessServerMessage:
     @pytest.mark.anyio
@@ -173,6 +180,38 @@ class TestProcessServerMessage:
         proxy._emit = AsyncMock()
         await proxy._process_server_message("broken {json")
         proxy._emit.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_initialize_result_emits_session_start(self, proxy):
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "serverInfo": {"name": "filesystem", "version": "1.2.0"},
+                },
+            }
+        )
+        proxy._emit = AsyncMock()
+        await proxy._process_server_message(msg)
+        event = proxy._emit.call_args[0][0]
+        assert event.server_info == {"name": "filesystem", "version": "1.2.0"}
+
+    @pytest.mark.anyio
+    async def test_tools_list_result_records_tool_names(self, proxy):
+        msg = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "result": {"tools": [{"name": "Read", "inputSchema": {}}, {"name": "Bash", "inputSchema": {}}]},
+            }
+        )
+        proxy._emit = AsyncMock()
+        await proxy._process_server_message(msg)
+        event = proxy._emit.call_args[0][0]
+        assert event.tools_available == ["Read", "Bash"]
 
 
 class TestProxyConfig:
